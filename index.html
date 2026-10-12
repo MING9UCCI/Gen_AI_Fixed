@@ -18,6 +18,9 @@ body{min-height:100vh; background-image:radial-gradient(ellipse 80% 50% at 50% -
 img.px{image-rendering:pixelated; image-rendering:crisp-edges;}
 button{font-family:inherit; cursor:pointer;}
 .hidden{display:none !important;}
+button{touch-action:manipulation; min-height:44px;}
+.bubble{min-width:0; overflow-wrap:anywhere;}
+.qtext,.opt,.expl,.rbody{overflow-wrap:anywhere;}
 
 /* ── pixel frame ── */
 .pxbox{background:var(--panel); border:3px solid var(--line); border-radius:8px; box-shadow:0 4px 0 #0a0d13, inset 0 0 0 2px #0a0d13;}
@@ -140,6 +143,15 @@ button{font-family:inherit; cursor:pointer;}
 #confetti i{position:absolute; top:-12px; width:10px; height:10px; animation:fall linear forwards;}
 @keyframes fall{to{transform:translateY(105vh) rotate(720deg);}}
 @media (prefers-reduced-motion: reduce){*{animation:none !important; transition:none !important;}}
+@media (max-width:420px){
+  .wrap{padding:12px 10px 36px;}
+  .qcard{padding:12px;}
+  .charbox{width:72px;}
+  .charline{gap:8px;}
+  .tgl{width:100%; line-height:1.6;}
+  .selfrow{flex-wrap:wrap;}
+  .selfbtn{min-width:120px;}
+}
 </style>
 </head>
 <body>
@@ -339,19 +351,39 @@ function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function pickN(arr,n){return shuffle(arr.slice()).slice(0,n);}
 function show(id){for(const s of ["scr-title","scr-quiz","scr-result"])document.getElementById(s).classList.toggle("hidden",s!==id);window.scrollTo({top:0});}
-function showTitle(){show("scr-title");}
+function showTitle(){stopTimer(); show("scr-title");}
 function setFace(key){const el=document.getElementById("q-face");el.src=FACES[key];el.classList.remove("bump");void el.offsetWidth;el.classList.add("bump");}
 
 function buildPool(){
   const pool={};
   for(const ck of ["1","2","4"]){
     const c=RAW["ch"+ck], items=[];
-    for(const q of c.mc) items.push({ch:ck,type:"mc",star:q.star,q:q.q,opts:q.opts,ans:q.ans,expl:q.expl});
-    for(const q of c.ox)  items.push({ch:ck,type:"ox",star:"",q:q.q,ans:q.ans,expl:q.expl});
-    for(const q of c.short) items.push({ch:ck,type:"short",star:q.star,q:q.q,ansText:q.ans,expl:q.expl});
+    // PDF answers use 1–4; JavaScript option indices use 0–3.
+    for(const q of c.mc){
+      if(!Array.isArray(q.opts)||q.opts.length!==4||!Number.isInteger(q.ans)||q.ans<1||q.ans>q.opts.length){
+        throw new Error(`${ck}장 객관식 ${q.n}번: 정답 번호를 확인해 주세요.`);
+      }
+      items.push({ch:ck,type:"mc",star:q.star,q:q.q,opts:q.opts.slice(),ans:q.ans-1,expl:q.expl});
+    }
+    for(const q of c.ox){
+      if(!["O","X"].includes(q.ans))throw new Error(`${ck}장 OX ${q.n}번: 정답을 확인해 주세요.`);
+      items.push({ch:ck,type:"ox",star:"",q:q.q,ans:q.ans,expl:q.expl});
+    }
+    for(const q of c.short){
+      if(typeof q.ans!=="string"||!q.ans.trim())throw new Error(`${ck}장 단답식 ${q.n}번: 정답을 확인해 주세요.`);
+      items.push({ch:ck,type:"short",star:q.star,q:q.q,ansText:q.ans,expl:q.expl});
+    }
     pool[ck]=items;
   }
   return pool;
+}
+function shuffleOptions(it){
+  const order=shuffle(it.opts.map((o,i)=>i));
+  it.shOpts=order.map(i=>it.opts[i]);
+  it.shAns=order.indexOf(it.ans);
+  if(it.shAns<0||it.shOpts[it.shAns]!==it.opts[it.ans]){
+    throw new Error("선택지와 정답이 일치하지 않습니다.");
+  }
 }
 function startExam(mode){
   curMode=mode; const pool=buildPool();
@@ -365,7 +397,7 @@ function startExam(mode){
     sel=shuffle(pool[mode].slice());
   }
   // 선택지 셔플(객관식)
-  for(const it of sel){ if(it.type==="mc"){ const order=shuffle(it.opts.map((o,i)=>i)); it.shOpts=order.map(i=>it.opts[i]); it.shAns=order.indexOf(it.ans); } }
+  for(const it of sel){ if(it.type==="mc") shuffleOptions(it); }
   list=sel; idx=0; okCnt=0; streak=0; wrong=[]; perCh={};
   for(const it of list){ perCh[it.ch]=perCh[it.ch]||{ok:0,n:0}; }
   document.getElementById("q-mode").textContent = mode==="full" ? "전체 모의고사 · 50문제" : CH_NAME[mode]+" · 25문제";
@@ -444,7 +476,7 @@ function finishBtn(){
   const nb=document.getElementById("q-next");
   nb.textContent = idx+1>=list.length ? "결과 보기 ▶" : "다음 문제 ▶";
   nb.onclick=()=>{ if(idx+1>=list.length) renderResult(); else { idx++; renderQ(); } };
-  nb.focus();
+  nb.focus({preventScroll:true});
 }
 function answerMC(i,btn){
   const it=list[idx]; if(answered||btn.disabled)return; answered=true;
@@ -486,7 +518,8 @@ function revealShort(it,wrap,auto){
   const sr=document.createElement("div"); sr.className="selfrow";
   sr.innerHTML=`<button class="selfbtn">맞았어요 😊</button><button class="selfbtn">틀렸어요 😅</button>`;
   const [b1,b2]=sr.querySelectorAll(".selfbtn");
-  const done=(ok)=>{ b1.disabled=b2.disabled=true; b1.style.opacity=ok?1:.35; b2.style.opacity=ok?.35:1;
+  let graded=false;
+  const done=(ok)=>{ if(graded)return; graded=true; b1.disabled=b2.disabled=true; b1.style.opacity=ok?1:.35; b2.style.opacity=ok?.35:1;
     const fb=document.getElementById("q-fb");
     fb.innerHTML=`<div class="fb-head ${ok?"ok":"no"}">${ok?"✅ 자가 채점: 정답":"❌ 자가 채점: 오답"}</div><div class="expl">${it.expl}</div>`;
     fb.classList.remove("hidden");
@@ -548,7 +581,12 @@ document.addEventListener("keydown",e=>{
     if(it.type==="mc"&&/^[1-4]$/.test(e.key)){const btns=document.querySelectorAll(".opts .opt");if(btns[+e.key-1])btns[+e.key-1].click();}
     if(it.type==="ox"&&(e.key==="o"||e.key==="O")){const b=document.querySelector(".oxbtn.o");if(b)b.click();}
     if(it.type==="ox"&&(e.key==="x"||e.key==="X")){const b=document.querySelector(".oxbtn.x");if(b)b.click();}
-  }else if(e.key==="Enter"){const b=document.getElementById("q-next");if(b)b.click();}
+  }else if(e.key==="Enter"&&!e.repeat){
+    const b=document.getElementById("q-next");
+    if(b&&!document.getElementById("q-nextrow").classList.contains("hidden")){
+      e.preventDefault(); b.click();
+    }
+  }
 });
 </script>
 </body>
